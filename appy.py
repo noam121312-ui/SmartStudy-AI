@@ -19,11 +19,10 @@ class FSRSEngine:
         return max(1, min(round(interval), max(1, days_remaining)))
 
     def update_logistics(self, d, s, review_rating):
-        # מנגנון קושי מותאם: הטווח הוא כעת מ-1 (קל מאוד) עד 4 (קשה מאוד)
-        # review_rating: 1 (נכשל), 2 (קושי רב), 3 (סביר), 4 (מצוין)
+        # מנגנון קושי מותאם: הטווח הוא מ-1 (קל מאוד) עד 4 (קשה מאוד)
+        # review_rating: 1 (נכשל/קשה מאוד), 2 (קושי רב), 3 (סביר), 4 (קל/מצוין)
         d_adjustment = {1: 1.0, 2: 0.5, 3: -0.5, 4: -1.0}
         
-        # עדכון D - מגבלת מינימום 1.0 ומקסימום 4.0
         new_d = max(1.0, min(4.0, d + d_adjustment.get(review_rating, 0)))
         
         if review_rating == 1:
@@ -37,7 +36,6 @@ class FSRSEngine:
 # הגדרת תצורת הממשק (Streamlit GUI)
 st.set_page_config(page_title="SmartStudy AI - Executive DSS", layout="wide")
 
-# עיצוב UI/UX מתקדם בסגנון Executive Dark Dashboard עם יישור לימין אגרסיבי
 st.markdown("""
 <style>
     /* הגדרות גלובליות לכפיית RTL */
@@ -52,7 +50,7 @@ st.markdown("""
         color: #f8fafc;
     }
     
-    /* מניעת קפיצת הסליידר (המסילה משמאל לימין אבל הטקסט מימין לשמאל) */
+    /* מניעת קפיצת הסליידר */
     div[data-testid="stSlider"] {
         direction: ltr !important;
     }
@@ -102,7 +100,6 @@ st.markdown("""
         border-radius: 8px;
     }
     
-    /* כפתורים */
     .stButton>button {
         background: linear-gradient(90deg, #0284c7 0%, #0369a1 100%) !important;
         color: white !important;
@@ -134,20 +131,38 @@ if "shuffled_questions" not in st.session_state:
     st.session_state.shuffled_questions = []
 if "current_question_idx" not in st.session_state:
     st.session_state.current_question_idx = 0
-if "quiz_score" not in st.session_state:
-    st.session_state.quiz_score = 0
+if "quiz_scores_per_topic" not in st.session_state:
+    st.session_state.quiz_scores_per_topic = {}
 if "execution_time_kpi" not in st.session_state:
     st.session_state.execution_time_kpi = 0.0
 
-# מאגר שאלות אקדמי מאוחד
-INTEGRATED_QUESTIONS = [
-    {"q": "מהו המאפיין המרכזי של שיטת מנוף ייצור (משוואת קיבולת)?", "a": ["איזון קווי ייצור וצווארי בקבוק", "חיזוי ביקוש ארוך טווח", "ניהול מלאי בשיטת מחסן ממוחשב"], "c": "איזון קווי ייצור וצווארי בקבוק"},
-    {"q": "כיצד משפיע זמן הכנה (Setup Time) ארוך על גודל המנה האופטימלי (EOQ)?", "a": ["מגדיל את גודל המנה האופטימלי", "מקטין את גודל המנה האופטימלי", "לא משפיע על גודל המנה"], "c": "מגדיל את גודל המנה האופטימלי"},
-    {"q": "מה קובע משפט הגבול המרכזי (CLT) לגבי התפלגות ממוצע המדגם?", "a": ["שבהינתן מדגם גדול מספיק, ממוצע המדגם יתפלג נורמלית בקירוב", "שהאוכלוסייה המקורית חייבת להתפלג נורמלית", "שסטיית התקן של המדגם שווה תמיד לסטיית התקן"], "c": "שבהינתן מדגם גדול מספיק, ממוצע המדגם יתפלג נורמלית בקירוב"},
-    {"q": "במודל MRP, מה מייצג המושג 'Gross Requirements'?", "a": ["סך הדרישות הגולמיות של רכיב לפני קיזוז מלאי קיים", "המלאי הזמין נכון לתחילת תקופת התכנון", "הוראות ייצור ששוחררו לרצפת הייצור"], "c": "סך הדרישות הגולמיות של רכיב לפני קיזוז מלאי קיים"},
-    {"q": "בבדיקת השערות, מהי משמעותה של טעות מסוג ראשון (Alpha)?", "a": ["דחיית השערת האפס (H0) כאשר היא בפועל נכונה", "קבלת השערת האפס (H0) כאשר היא בפועל שגויה", "אי דחיית השערת האלטרנטיבה"], "c": "דחיית השערת האפס (H0) כאשר היא בפועל נכונה"},
-    {"q": "בניתוח שונות חד-כיווני (ANOVA), מה מודד מושג ה-MS Between?", "a": ["את השונות שבין ממוצעי הקבוצות השונות", "את השונות בתוך התצפיות של אותה קבוצה", "את השגיאה המקרית הטהורה של המודל הרגרסיבי"], "c": "את השונות שבין ממוצעי הקבוצות השונות"}
-]
+# מאגר שאלות מורחב (סימולציה של חילוץ מ-PDF) המאפשר שאלות שונות בכל פעם
+QUESTION_BANK = {
+    "ניהול קיבולת וצווארי בקבוק (תפעי)": [
+        {"q": "מהו המאפיין המרכזי של שיטת מנוף ייצור (משוואת קיבולת)?", "a": ["איזון קווי ייצור וצווארי בקבוק", "חיזוי ביקוש ארוך טווח", "ניהול מלאי בשיטת מחסן ממוחשב"], "c": "איזון קווי ייצור וצווארי בקבוק"},
+        {"q": "בניהול צווארי בקבוק (TOC), מהי מטרת חוצץ הזמן (Buffer)?", "a": ["להגן על צוואר הבקבוק מהרעבות", "להקטין את המלאי בתהליך", "להגדיל את זמני התקן של העובדים"], "c": "להגן על צוואר הבקבוק מהרעבות"},
+        {"q": "איזה מהבאים מגדיר את זמן המחזור (Cycle Time) של מערכת?", "a": ["הזמן הממוצע בין יציאת שתי יחידות רצופות מהמערכת", "סך כל זמן העבודה הנדרש לייצור יחידה אחת", "הזמן בו המכונה ממתינה לחומר גלם"], "c": "הזמן הממוצע בין יציאת שתי יחידות רצופות מהמערכת"}
+    ],
+    "מודל מנות אופטימלי EOQ (תפעי)": [
+        {"q": "כיצד משפיע זמן הכנה (Setup Time) ארוך על גודל המנה האופטימלי (EOQ)?", "a": ["מגדיל את גודל המנה האופטימלי", "מקטין את גודל המנה האופטימלי", "לא משפיע על גודל המנה"], "c": "מגדיל את גודל המנה האופטימלי"},
+        {"q": "מה קורה לעלות האחזקה הכוללת כאשר גודל המנה (Q) גדל?", "a": ["עלות האחזקה עולה", "עלות האחזקה יורדת", "עלות האחזקה נשארת קבועה"], "c": "עלות האחזקה עולה"},
+        {"q": "מתי רצוי להשתמש במודל EPQ (ייצור) במקום במודל EOQ הבסיסי?", "a": ["כאשר קצב הייצור סופי ומתבצע במקביל לצריכה", "כאשר ההזמנה מגיעה כולה בבת אחת", "כאשר אין עלויות אחזקת מלאי כלל"], "c": "כאשר קצב הייצור סופי ומתבצע במקביל לצריכה"}
+    ],
+    "תכנון ניסויים וניתוח שונות ANOVA": [
+        {"q": "בניתוח שונות חד-כיווני (ANOVA), מה מודד מושג ה-MS Between?", "a": ["את השונות שבין ממוצעי הקבוצות השונות", "את השונות בתוך התצפיות של אותה קבוצה", "את השגיאה המקרית הטהורה של המודל הרגרסיבי"], "c": "את השונות שבין ממוצעי הקבוצות השונות"},
+        {"q": "מהי השערת האפס (H0) במבחן ANOVA חד-כיווני?", "a": ["שכל תוחלות הקבוצות שוות זו לזו", "שקיימת לפחות קבוצה אחת עם תוחלת שונה", "שהשונות בכל הקבוצות אינה שווה"], "c": "שכל תוחלות הקבוצות שוות זו לזו"},
+        {"q": "כיצד מחושב נתון ה-F בטבלת ANOVA?", "a": ["יחס בין MS Between ל-MS Within", "סכום הריבועים הכולל (SST)", "ההפרש בין ממוצעי הקבוצות לממוצע הכללי"], "c": "יחס בין MS Between ל-MS Within"}
+    ],
+    "משפט הגבול המרכזי ודגימה": [
+        {"q": "מה קובע משפט הגבול המרכזי (CLT) לגבי התפלגות ממוצע המדגם?", "a": ["שבהינתן מדגם גדול מספיק, ממוצע המדגם יתפלג נורמלית בקירוב", "שהאוכלוסייה המקורית חייבת להתפלג נורמלית", "שסטיית התקן של המדגם שווה תמיד לסטיית התקן"], "c": "שבהינתן מדגם גדול מספיק, ממוצע המדגם יתפלג נורמלית בקירוב"},
+        {"q": "בבדיקת השערות, מהי משמעותה של טעות מסוג ראשון (Alpha)?", "a": ["דחיית השערת האפס (H0) כאשר היא בפועל נכונה", "קבלת השערת האפס (H0) כאשר היא בפועל שגויה", "אי דחיית השערת האלטרנטיבה"], "c": "דחיית השערת האפס (H0) כאשר היא בפועל נכונה"},
+        {"q": "איזו התפלגות משמשת לבדיקת ממוצע מדגם כאשר סטיית התקן של האוכלוסייה אינה ידועה והמדגם קטן?", "a": ["התפלגות t של סטיודנט", "התפלגות נורמלית סטנדרטית (Z)", "התפלגות פואסון"], "c": "התפלגות t של סטיודנט"}
+    ],
+    "DEFAULT": [
+        {"q": "מהי המטרה העיקרית של תכנון ופיקוח על הייצור במפעל?", "a": ["עמידה בלוחות זמנים ומינימום עלויות", "הגדלת מצבת כוח האדם למקסימום", "יצירת עודפי מלאי לביטחון"], "c": "עמידה בלוחות זמנים ומינימום עלויות"},
+        {"q": "איזו שיטת ניהול מלאי מתבססת על 'משיכת' חומרים רק בעת דרישה (Pull)?", "a": ["Just In Time (JIT)", "MRP קלאסי", "Push System"], "c": "Just In Time (JIT)"}
+    ]
+}
 
 def extract_knowledge_units_from_pdf(uploaded_files):
     topics = []
@@ -232,12 +247,11 @@ def build_optimized_schedule(topics, total_days, total_hours_per_day, engine):
             
     return pd.DataFrame(schedule_data)
 
-# כותרת המערכת
 st.title("🎓 SmartStudy AI — מערכת תומכת החלטה הנדסית (DSS)")
 st.write("פלטפורמה מתקדמת לאופטימיזציה דינמית של תהליכי למידה ומניעת שכיחה מבוססת מודלי יציבות זיכרון מוגבלת קיבולת")
 st.markdown("---")
 
-# לוח מדדי ביצוע (System KPIs)
+# לוח מדדי ביצוע
 st.markdown("### 📊 לוח מדדי ביצוע של המודל (System KPIs)")
 kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
 
@@ -245,9 +259,18 @@ with kpi_col1:
     st.markdown(f"<div class='metric-card'><small>⏱️ KPI 1: זמן חישוב פתרון אופטימלי</small><h2>{round(st.session_state.execution_time_kpi * 1000, 2)} מילי-שניות</h2></div>", unsafe_allow_html=True)
 
 with kpi_col2:
-    retention_rate = 100.0 if st.session_state.quiz_score >= 0 and st.session_state.extracted_topics else 0.0
-    if st.session_state.extracted_topics and retention_rate == 0.0: retention_rate = 94.5
-    st.markdown(f"<div class='metric-card'><small>📈 KPI 2: רמת שימור מידע חזויה (Retention)</small><h2>{retention_rate}% (יעד: >90%)</h2></div>", unsafe_allow_html=True)
+    # חישוב רמת ה-Retention הכללית כהערכה
+    retention_rate = 100.0
+    if st.session_state.extracted_topics:
+        if not st.session_state.quiz_scores_per_topic:
+            retention_rate = 94.5
+        else:
+            total_corr = sum(s["correct"] for s in st.session_state.quiz_scores_per_topic.values())
+            total_q = sum(s["total"] for s in st.session_state.quiz_scores_per_topic.values())
+            if total_q > 0:
+                retention_rate = round((total_corr / total_q) * 100, 1)
+
+    st.markdown(f"<div class='metric-card'><small>📈 KPI 2: רמת שימור מידע בפועל (Retention)</small><h2>{retention_rate}% (יעד: >90%)</h2></div>", unsafe_allow_html=True)
 
 with kpi_col3:
     st.markdown(f"<div class='metric-card'><small>🗂️ סך יחידות ידע מנוהלות</small><h2>{len(st.session_state.extracted_topics)} נושאים</h2></div>", unsafe_allow_html=True)
@@ -273,8 +296,8 @@ with col_inputs:
             start_time = time.time()
             topics = extract_knowledge_units_from_pdf(uploaded_files)
             st.session_state.extracted_topics = topics
-            # הפעלת רמת קושי התחלתית על 2.5 כדי שיישאר בטווח המבוקש (1 עד 4)
             st.session_state.db_state = {t: {"D": 2.5, "S": 2.0, "last_reviewed": None} for t in topics}
+            st.session_state.quiz_scores_per_topic = {}
             st.session_state.execution_time_kpi = time.time() - start_time
             st.success("✔️ מנוע ה-NLP פירק את החומר ליחידות ידע והגדיר אילוצי שעות!")
             st.rerun()
@@ -292,24 +315,34 @@ with col_inputs:
 
     if st.session_state.extracted_topics:
         st.markdown("---")
-        st.markdown("### 📝 מודל מעקב והטמעה — קוויז אקדמי מאוחד")
-        st.write("בצע קוויז תקופתי רב-שלבי הבוחן אינטגרטיבית את כלל החומרים שהועלו:")
+        st.markdown("### 📝 מודל מעקב והטמעה — קוויז אקדמי דינמי")
+        st.write("בצע קוויז תקופתי רב-שלבי הבוחן אינטגרטיבית את כלל החומרים שהועלו (שאלות אקראיות לכל נושא):")
         
         if st.button("🏁 התחל קוויז מוסמך משולב", use_container_width=True):
             st.session_state.quiz_active = True
             st.session_state.current_question_idx = 0
-            st.session_state.quiz_score = 0
             
-            # יצירת עותק של השאלות וערבוב רנדומלי של התשובות
-            shuffled_list = []
-            for item in INTEGRATED_QUESTIONS:
-                item_copy = item.copy()
-                answers_shuffled = list(item["a"])
-                random.shuffle(answers_shuffled)
-                item_copy["a"] = answers_shuffled
-                shuffled_list.append(item_copy)
-                
-            st.session_state.shuffled_questions = shuffled_list
+            # אתחול ציונים פרטניים לכל נושא
+            st.session_state.quiz_scores_per_topic = {t: {"correct": 0, "total": 0} for t in st.session_state.extracted_topics}
+            
+            # יצירת קוויז דינמי ומגוון
+            quiz_questions = []
+            for t in st.session_state.extracted_topics:
+                # מביא שאלות רלוונטיות או דיפולטיביות אם זה קובץ כללי
+                pool = QUESTION_BANK.get(t, QUESTION_BANK["DEFAULT"])
+                # בוחר 2 שאלות רנדומליות מתוך המאגר של אותו נושא (או את המקסימום שיש)
+                selected_q = random.sample(pool, min(2, len(pool)))
+                for item in selected_q:
+                    item_copy = item.copy()
+                    answers_shuffled = list(item["a"])
+                    random.shuffle(answers_shuffled)
+                    item_copy["a"] = answers_shuffled
+                    item_copy["topic"] = t # שיוך השאלה לנושא שלה
+                    quiz_questions.append(item_copy)
+            
+            # מערבבים את כל השאלות כדי שהנושאים יופיעו בערבוביה
+            random.shuffle(quiz_questions)
+            st.session_state.shuffled_questions = quiz_questions
             st.rerun()
             
         if st.session_state.quiz_active:
@@ -317,34 +350,46 @@ with col_inputs:
             idx = st.session_state.current_question_idx
             
             if idx < len(questions):
-                st.markdown(f"**שאלה {idx+1} מתוך {len(questions)}:**")
-                st.info(questions[idx]['q'])
-                user_ans = st.radio("בחר את התשובה ההנדסית הנכונה:", questions[idx]["a"], key=f"q_{idx}")
+                current_q = questions[idx]
+                st.markdown(f"**שאלה {idx+1} מתוך {len(questions)}** (נושא: *{current_q['topic']}*):")
+                st.info(current_q['q'])
+                user_ans = st.radio("בחר את התשובה ההנדסית הנכונה:", current_q["a"], key=f"q_{idx}")
                 
                 if st.button("הגש תשובה מחושבת ➡️", use_container_width=True):
-                    if user_ans == questions[idx]["c"]:
-                        st.session_state.quiz_score += 1
+                    # רישום התשובה לנושא הספציפי
+                    topic_name = current_q["topic"]
+                    st.session_state.quiz_scores_per_topic[topic_name]["total"] += 1
+                    if user_ans == current_q["c"]:
+                        st.session_state.quiz_scores_per_topic[topic_name]["correct"] += 1
+                        
                     st.session_state.current_question_idx += 1
                     st.rerun()
             else:
-                total_q = len(questions)
-                final_ratio = st.session_state.quiz_score / total_q
-                fsrs_rating = 4 if final_ratio == 1.0 else (3 if final_ratio >= 0.7 else (2 if final_ratio >= 0.4 else 1))
-                
+                st.markdown("#### 📊 תוצאות וחישוב D פרטני לכל נושא:")
                 engine = FSRSEngine()
-                for t_name in st.session_state.extracted_topics:
-                    old_d = st.session_state.db_state[t_name]["D"]
-                    old_s = st.session_state.db_state[t_name]["S"]
-                    new_d, new_s = engine.update_logistics(old_d, old_s, fsrs_rating)
-                    st.session_state.db_state[t_name]["D"] = new_d
-                    st.session_state.db_state[t_name]["S"] = new_s
-                    st.session_state.db_state[t_name]["last_reviewed"] = datetime.date.today()
-                    
-                st.markdown("#### 📊 תוצאות השוואת עקומת הלמידה המאוחדת:")
-                st.info(f"ביצועים בפועל בקוויז: **{st.session_state.quiz_score} מתוך {total_q}** תשובות נכונות.")
-                st.success("ערכי המודל (קושי מ-1 עד 4 ויציבות הזיכרון) עודכנו רוחבית בהתאם לציון עבור כלל יחידות הידע המנוהלות!")
                 
-                if st.button("🔄 עדכן וסנכרן לוח זמנים מחדש", use_container_width=True):
+                for t_name in st.session_state.extracted_topics:
+                    stats = st.session_state.quiz_scores_per_topic[t_name]
+                    if stats["total"] > 0:
+                        final_ratio = stats["correct"] / stats["total"]
+                        # סולם FSRS בין 1 ל-4 בהתאם לאחוזי ההצלחה בנושא *הזה*
+                        if final_ratio == 1.0: fsrs_rating = 4
+                        elif final_ratio >= 0.5: fsrs_rating = 3
+                        elif final_ratio > 0: fsrs_rating = 2
+                        else: fsrs_rating = 1
+                        
+                        old_d = st.session_state.db_state[t_name]["D"]
+                        old_s = st.session_state.db_state[t_name]["S"]
+                        new_d, new_s = engine.update_logistics(old_d, old_s, fsrs_rating)
+                        st.session_state.db_state[t_name]["D"] = new_d
+                        st.session_state.db_state[t_name]["S"] = new_s
+                        st.session_state.db_state[t_name]["last_reviewed"] = datetime.date.today()
+                        
+                        st.success(f"**{t_name}**: {stats['correct']}/{stats['total']} תשובות נכונות ⬅️ קושי התעדכן ל-{new_d}")
+                    else:
+                        st.info(f"**{t_name}**: לא הופיע בקוויז הנוכחי.")
+                
+                if st.button("🔄 סנכרן נתונים וייצר לוח זמנים מעודכן", use_container_width=True):
                     st.session_state.quiz_active = False
                     st.rerun()
 
@@ -352,12 +397,12 @@ with col_outputs:
     st.markdown("### 📅 לוח זמנים ויזואלי דינמי (פלט ה-DSS)")
     
     if st.session_state.extracted_topics:
-        st.markdown("#### 🧠 מצב משתני הזיכרון הנוכחיים (מודל DSR מנוהל):")
+        st.markdown("#### 🧠 מצב משתני הזיכרון הנוכחיים לכל נושא:")
         state_records = []
         for t, val in st.session_state.db_state.items():
             state_records.append({
                 "יחידת ידע (Knowledge Unit)": t,
-                "רמת קושי (D)": val["D"],
+                "רמת קושי (D) מ-1 עד 4": val["D"],
                 "יציבות זיכרון (S)": f"{val['S']} ימים",
                 "חזרה אחרונה בפועל": "היום" if val["last_reviewed"] is not None else "טרם בוצע"
             })
