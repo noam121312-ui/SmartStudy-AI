@@ -19,13 +19,17 @@ class FSRSEngine:
         return max(1, min(round(interval), max(1, days_remaining)))
 
     def update_logistics(self, d, s, review_rating):
-        d_adjustment = {1: 2.0, 2: 0.5, 3: -0.5, 4: -1.5}
-        new_d = max(1.0, min(10.0, d + d_adjustment.get(review_rating, 0)))
+        # מנגנון קושי מותאם: הטווח הוא כעת מ-1 (קל מאוד) עד 4 (קשה מאוד)
+        # review_rating: 1 (נכשל), 2 (קושי רב), 3 (סביר), 4 (מצוין)
+        d_adjustment = {1: 1.0, 2: 0.5, 3: -0.5, 4: -1.0}
+        
+        # עדכון D - מגבלת מינימום 1.0 ומקסימום 4.0
+        new_d = max(1.0, min(4.0, d + d_adjustment.get(review_rating, 0)))
         
         if review_rating == 1:
             new_s = max(0.5, s * 0.2)
         else:
-            modifier = 1.0 + (11.0 - new_d) * 0.3
+            modifier = 1.0 + (5.0 - new_d) * 0.3
             new_s = s * modifier
             
         return round(new_d, 2), round(new_s, 2)
@@ -33,28 +37,30 @@ class FSRSEngine:
 # הגדרת תצורת הממשק (Streamlit GUI)
 st.set_page_config(page_title="SmartStudy AI - Executive DSS", layout="wide")
 
-# עיצוב UI/UX מתקדם בסגנון Executive Dark Dashboard עם תמיכה מלאה ב-RTL ותיקון הסליידר
+# עיצוב UI/UX מתקדם בסגנון Executive Dark Dashboard עם יישור לימין אגרסיבי
 st.markdown("""
 <style>
-    html, body, .stApp {
-        direction: RTL !important;
+    /* הגדרות גלובליות לכפיית RTL */
+    .stApp, .block-container, div[data-testid="stVerticalBlock"], 
+    div[data-testid="stMarkdownContainer"] *, p, span, label, h1, h2, h3, h4, h5, h6 {
+        direction: rtl !important;
         text-align: right !important;
     }
+    
     .stApp {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         color: #f8fafc;
     }
-    div[data-testid='stAppViewContainer'], div[data-testid='stHeader'], .stDeployButton {
-        direction: RTL !important;
-        text-align: right !important;
-    }
     
-    /* תיקון באג הקפיצה של הסליידר בעברית (מכריח את מנגנון הגרירה להיות LTR אך משאיר טקסט מימין) */
+    /* מניעת קפיצת הסליידר (המסילה משמאל לימין אבל הטקסט מימין לשמאל) */
     div[data-testid="stSlider"] {
-        direction: LTR !important;
+        direction: ltr !important;
     }
-    div[data-testid="stSlider"] label, div[data-testid="stSlider"] aria-label {
-        direction: RTL !important;
+    div[data-testid="stSlider"] > div {
+        direction: ltr !important;
+    }
+    div[data-testid="stSlider"] label {
+        direction: rtl !important;
         text-align: right !important;
         display: block;
         width: 100%;
@@ -66,8 +72,11 @@ st.markdown("""
         border-radius: 12px;
         border: 1px solid rgba(148, 163, 184, 0.2);
         border-right: 6px solid #38bdf8;
+        border-left: none;
         box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         margin-bottom: 15px;
+        direction: rtl !important;
+        text-align: right !important;
     }
     .metric-card small {
         color: #94a3b8;
@@ -81,13 +90,19 @@ st.markdown("""
         font-size: 1.8rem;
         font-weight: 700;
     }
-    .stTable, table {
-        direction: RTL !important;
+    
+    /* טבלאות */
+    .stTable, table, th, td {
+        direction: rtl !important;
         text-align: right !important;
+    }
+    table {
         background-color: #1e293b !important;
         color: #f1f5f9 !important;
         border-radius: 8px;
     }
+    
+    /* כפתורים */
     .stButton>button {
         background: linear-gradient(90deg, #0284c7 0%, #0369a1 100%) !important;
         color: white !important;
@@ -101,6 +116,7 @@ st.markdown("""
         transform: translateY(-2px) !important;
         box-shadow: 0 4px 12px rgba(3, 105, 161, 0.4) !important;
     }
+    
     h1, h2, h3, h4 {
         color: #38bdf8 !important;
     }
@@ -257,7 +273,8 @@ with col_inputs:
             start_time = time.time()
             topics = extract_knowledge_units_from_pdf(uploaded_files)
             st.session_state.extracted_topics = topics
-            st.session_state.db_state = {t: {"D": 5.0, "S": 2.0, "last_reviewed": None} for t in topics}
+            # הפעלת רמת קושי התחלתית על 2.5 כדי שיישאר בטווח המבוקש (1 עד 4)
+            st.session_state.db_state = {t: {"D": 2.5, "S": 2.0, "last_reviewed": None} for t in topics}
             st.session_state.execution_time_kpi = time.time() - start_time
             st.success("✔️ מנוע ה-NLP פירק את החומר ליחידות ידע והגדיר אילוצי שעות!")
             st.rerun()
@@ -276,14 +293,14 @@ with col_inputs:
     if st.session_state.extracted_topics:
         st.markdown("---")
         st.markdown("### 📝 מודל מעקב והטמעה — קוויז אקדמי מאוחד")
-        st.write("בצעי קוויז תקופתי רב-שלבי הבוחן אינטגרטיבית את כלל החומרים שהועלו:")
+        st.write("בצע קוויז תקופתי רב-שלבי הבוחן אינטגרטיבית את כלל החומרים שהועלו:")
         
         if st.button("🏁 התחל קוויז מוסמך משולב", use_container_width=True):
             st.session_state.quiz_active = True
             st.session_state.current_question_idx = 0
             st.session_state.quiz_score = 0
             
-            # יצירת עותק של השאלות וערבוב רנדומלי של התשובות לכל שאלה בנפרד
+            # יצירת עותק של השאלות וערבוב רנדומלי של התשובות
             shuffled_list = []
             for item in INTEGRATED_QUESTIONS:
                 item_copy = item.copy()
@@ -302,7 +319,7 @@ with col_inputs:
             if idx < len(questions):
                 st.markdown(f"**שאלה {idx+1} מתוך {len(questions)}:**")
                 st.info(questions[idx]['q'])
-                user_ans = st.radio("בחרי את התשובה ההנדסית הנכונה:", questions[idx]["a"], key=f"q_{idx}")
+                user_ans = st.radio("בחר את התשובה ההנדסית הנכונה:", questions[idx]["a"], key=f"q_{idx}")
                 
                 if st.button("הגש תשובה מחושבת ➡️", use_container_width=True):
                     if user_ans == questions[idx]["c"]:
@@ -325,7 +342,7 @@ with col_inputs:
                     
                 st.markdown("#### 📊 תוצאות השוואת עקומת הלמידה המאוחדת:")
                 st.info(f"ביצועים בפועל בקוויז: **{st.session_state.quiz_score} מתוך {total_q}** תשובות נכונות.")
-                st.success("ערכי המודל (Difficulty & Stability) עודכנו רוחבית עבור כלל יחידות הידע המנוהלות!")
+                st.success("ערכי המודל (קושי מ-1 עד 4 ויציבות הזיכרון) עודכנו רוחבית בהתאם לציון עבור כלל יחידות הידע המנוהלות!")
                 
                 if st.button("🔄 עדכן וסנכרן לוח זמנים מחדש", use_container_width=True):
                     st.session_state.quiz_active = False
@@ -352,7 +369,6 @@ with col_outputs:
         if not df_schedule.empty:
             st.markdown("#### 📈 סימולציית עקומת הדעיכה ושימור הזיכרון החזויה ($R$):")
             
-            # יצירת סדרה מספרית רציפה עבור ציר ה-X כדי למנוע את בעיית המיון האלפביתי בגרף
             chart_data = pd.DataFrame({
                 "יום": range(1, len(df_schedule) + 1),
                 "רמת שימור הזיכרון": df_schedule["רמת אחזור"]
@@ -375,6 +391,6 @@ with col_outputs:
                 use_container_width=True
             )
         else:
-            st.warning("⚠️ לא ניתן לייצר לוח זמנים. ודאי כי תאריך הבחינה שנבחר הוא עתידי.")
+            st.warning("⚠️ לא ניתן לייצר לוח זמנים. ודא כי תאריך הבחינה שנבחר הוא עתידי.")
     else:
         st.info("💡 המערכת ממתינה להזנת חומרי לימוד. העלה קבצים מצד ימין ולחץ על 'הפעל אופטימיזציית FSRS' כדי להפיק לוח זמנים ומדדים.")
