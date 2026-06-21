@@ -3,6 +3,7 @@ import datetime
 import pandas as pd
 import math
 import time
+import random
 
 # ======================================================================
 # ליבת המערכת: מנוע אלגוריתם FSRS משופר
@@ -32,9 +33,13 @@ class FSRSEngine:
 # הגדרת תצורת הממשק (Streamlit GUI)
 st.set_page_config(page_title="SmartStudy AI - Executive DSS", layout="wide")
 
-# עיצוב UI/UX מתקדם בסגנון Executive Dark Dashboard
+# עיצוב UI/UX מתקדם בסגנון Executive Dark Dashboard עם תמיכה מלאה ב-RTL ותיקון הסליידר
 st.markdown("""
 <style>
+    html, body, .stApp {
+        direction: RTL !important;
+        text-align: right !important;
+    }
     .stApp {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         color: #f8fafc;
@@ -43,6 +48,18 @@ st.markdown("""
         direction: RTL !important;
         text-align: right !important;
     }
+    
+    /* תיקון באג הקפיצה של הסליידר בעברית (מכריח את מנגנון הגרירה להיות LTR אך משאיר טקסט מימין) */
+    div[data-testid="stSlider"] {
+        direction: LTR !important;
+    }
+    div[data-testid="stSlider"] label, div[data-testid="stSlider"] aria-label {
+        direction: RTL !important;
+        text-align: right !important;
+        display: block;
+        width: 100%;
+    }
+    
     .metric-card {
         background: rgba(30, 41, 59, 0.7);
         padding: 22px;
@@ -97,6 +114,8 @@ if "db_state" not in st.session_state:
     st.session_state.db_state = {}
 if "quiz_active" not in st.session_state:
     st.session_state.quiz_active = False
+if "shuffled_questions" not in st.session_state:
+    st.session_state.shuffled_questions = []
 if "current_question_idx" not in st.session_state:
     st.session_state.current_question_idx = 0
 if "quiz_score" not in st.session_state:
@@ -104,7 +123,7 @@ if "quiz_score" not in st.session_state:
 if "execution_time_kpi" not in st.session_state:
     st.session_state.execution_time_kpi = 0.0
 
-# מאגר שאלות אקדמי מאוחד (אינטגרטיבי לכל נושאי הלימוד שהועלו ללא הפרדה)
+# מאגר שאלות אקדמי מאוחד
 INTEGRATED_QUESTIONS = [
     {"q": "מהו המאפיין המרכזי של שיטת מנוף ייצור (משוואת קיבולת)?", "a": ["איזון קווי ייצור וצווארי בקבוק", "חיזוי ביקוש ארוך טווח", "ניהול מלאי בשיטת מחסן ממוחשב"], "c": "איזון קווי ייצור וצווארי בקבוק"},
     {"q": "כיצד משפיע זמן הכנה (Setup Time) ארוך על גודל המנה האופטימלי (EOQ)?", "a": ["מגדיל את גודל המנה האופטימלי", "מקטין את גודל המנה האופטימלי", "לא משפיע על גודל המנה"], "c": "מגדיל את גודל המנה האופטימלי"},
@@ -125,7 +144,6 @@ def extract_knowledge_units_from_pdf(uploaded_files):
                 topics.extend(["תכנון ניסויים וניתוח שונות ANOVA", "משפט הגבול המרכזי ודגימה"])
             else:
                 topics.append(f"ניהול תפעול מתקדם - {f.name.replace('.pdf', '')}")
-    # הסרנו מפה את נתוני ה-Default כדי שלא ייטענו סתם קבצים
     return list(set(topics))[:5]
 
 def build_optimized_schedule(topics, total_days, total_hours_per_day, engine):
@@ -244,7 +262,6 @@ with col_inputs:
             st.success("✔️ מנוע ה-NLP פירק את החומר ליחידות ידע והגדיר אילוצי שעות!")
             st.rerun()
 
-    # חלק שמציג התראות חריגת משאבים רק אם כבר חילצנו נושאים
     if days_remaining > 0 and st.session_state.extracted_topics:
         total_available_resource = days_remaining * daily_hours
         required_minimum_resource = len(st.session_state.extracted_topics) * 8
@@ -265,10 +282,21 @@ with col_inputs:
             st.session_state.quiz_active = True
             st.session_state.current_question_idx = 0
             st.session_state.quiz_score = 0
+            
+            # יצירת עותק של השאלות וערבוב רנדומלי של התשובות לכל שאלה בנפרד
+            shuffled_list = []
+            for item in INTEGRATED_QUESTIONS:
+                item_copy = item.copy()
+                answers_shuffled = list(item["a"])
+                random.shuffle(answers_shuffled)
+                item_copy["a"] = answers_shuffled
+                shuffled_list.append(item_copy)
+                
+            st.session_state.shuffled_questions = shuffled_list
             st.rerun()
             
         if st.session_state.quiz_active:
-            questions = INTEGRATED_QUESTIONS
+            questions = st.session_state.shuffled_questions
             idx = st.session_state.current_question_idx
             
             if idx < len(questions):
@@ -323,10 +351,12 @@ with col_outputs:
         
         if not df_schedule.empty:
             st.markdown("#### 📈 סימולציית עקומת הדעיכה ושימור הזיכרון החזויה ($R$):")
+            
+            # יצירת סדרה מספרית רציפה עבור ציר ה-X כדי למנוע את בעיית המיון האלפביתי בגרף
             chart_data = pd.DataFrame({
-                "יום הסימולציה": df_schedule["יום"],
+                "יום": range(1, len(df_schedule) + 1),
                 "רמת שימור הזיכרון": df_schedule["רמת אחזור"]
-            }).set_index("יום הסימולציה")
+            }).set_index("יום")
             st.line_chart(chart_data)
             
             df_display = df_schedule.copy()
@@ -338,7 +368,7 @@ with col_outputs:
             
             csv_data = df_display.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
-                label="📥 ייצא והורד תוכנית עבודה ממוטבת לנספח הדו\"ח (CSV)",
+                label="📥 ייצא והורד תוכנית עבודה ממוטבת (CSV)",
                 data=csv_data,
                 file_name=f"SmartStudy_Schedule_{exam_date}.csv",
                 mime="text/csv",
